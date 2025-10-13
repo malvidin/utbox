@@ -55,7 +55,7 @@ def main():
         url = row["url"].strip()
 
         list_name = row.get("list", "").strip().lower()
-        if list_name not in psl_names:
+        if list_name not in psl_options:
             label, psl = next(iter(psl_options.items()))
             logger.warning("List name %s not found, using list %s" % (list_name, label))
         else:

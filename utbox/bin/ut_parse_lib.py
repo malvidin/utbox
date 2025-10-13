@@ -18,7 +18,7 @@ import publicsuffixlist
 
 import ut_log_lib
 
-preg_rfc1808 = re.compile("://")
+preg_rfc1808 = re.compile("^[^/?&;=#]{1,200}://")
 preg_ipv4 = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 preg_ipv6 = re.compile(r"^\[[0-9A-Fa-f:]+]$")
 
@@ -72,7 +72,7 @@ def get_public_suffix_list(tld_list="iana"):
         f.write("\n// ===END ICANN DOMAINS===\n")
         f.seek(0)
         logger.info("loaded ICANN domains")
-        return PublicSuffixList(source=f, accept_unknown=False, only_icann=only_icann)
+        return PublicSuffixList(source=f, only_icann=only_icann)
 
     # Use base PublicSuffixList
     if tld_list in ("mozilla", "icann"):
@@ -85,7 +85,7 @@ def get_public_suffix_list(tld_list="iana"):
         only_icann = False
 
     with open(tld_list_path) as f:
-        psl = PublicSuffixList(source=f, accept_unknown=False, only_icann=only_icann)
+        psl = PublicSuffixList(source=f, only_icann=only_icann)
 
     return psl
 
