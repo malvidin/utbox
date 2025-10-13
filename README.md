@@ -20,15 +20,15 @@
 
 URL Toolbox (UTBox) is a set of building blocks for Splunk specially created for URL manipulation. UTBox has been created to be modular, easy to use and easy to deploy in any Splunk environments. 
 
-One of the core feature of UTBox is to correctly parse URLs and complicated TLDs (Top Level Domain) using the Mozilla Suffix List. Other functions like shannon entropy, counting, suites, meaning ratio, bayesian analysis, etc, are also available.
+One of the core features of UTBox is correctly parsing URLs and complicated TLDs (Top Level Domain) using the Mozilla Suffix List. Other functions like shannon entropy, counting, suites, meaning ratio, bayesian analysis, etc., are also available.
 
-UTBox has firstly be created for security analysts but may fit other needs as it’s a set of building blocks. UTBox only needs to be deployed on Splunk Search Heads (the bundles will automatically be sent to your Splunk Indexers). Finally, each lookups is shipped with a macro to make it easier to use.
+UTBox was created for security analysts but may fit other needs as it’s a set of building blocks. UTBox only needs to be deployed on Splunk Search Heads (the bundles will automatically be sent to your Splunk Indexers). Finally, each lookup is shipped with a macro to make it easier to use.
 
 [Read about this app on Splunk Blogs!](https://www.splunk.com/en_us/blog/security/ut-parsing-domains-like-house-slytherin.html)
 
 ## Getting Started
 
-This section outlines the steps required to use the app on a Splunk Enterprise environment. If you want to develop the code base further, refer to the [Development](##development) section of this README.
+This section outlines the steps required to use the app on a Splunk Enterprise environment. If you want to develop the code base further, refer to the [Development](#development) section of this README.
 
 
 ### Prerequisites
@@ -46,7 +46,7 @@ This app needs to be installed on the Search tier of your deployment.
 
 This app provides a set of macros that simplify the interaction with the bundled lookups.
 
-Please find below some selected samples of commands and their respective output. Please find more in-depth examples and explanation [in the docs](utbox/appserver/static/documentation.pdf).
+Please find below some selected samples of commands and their respective output. Please find more in-depth examples and explanation [in the PDF docs](utbox/appserver/static/documentation.pdf) or [in the Markdown docs](utbox/appserver/static/documentation.md).
 
 
 ### ut_parse_simple
@@ -59,9 +59,10 @@ Please find below some selected samples of commands and their respective output.
 ```
 
 **Output**
-|_time                       |url               |ut_fragment|ut_netloc |ut_params|ut_path|ut_query|ut_scheme|
-|----------------------------|------------------|-----------|----------|---------|-------|--------|---------|
-|2021-12-16T10:29:07.000+0000|https://www.splunk.com/en_us/blog/security/ut-parsing-domains-like-house-slytherin.html|None       |www.splunk.com|None     |/en_us/blog/security/ut-parsing-domains-like-house-slytherin.html|None    |https    |
+
+| _time                        | url                | ut_fragment | ut_netloc  | ut_params | ut_path                                                           | ut_query | ut_scheme |
+|------------------------------|--------------------|-------------|------------|-----------|-------------------------------------------------------------------|----------|-----------|
+| 2021-12-16T10:29:07.000+0000 | https://splunk.com | None        | splunk.com | None      | /en_us/blog/security/ut-parsing-domains-like-house-slytherin.html | None     | https     |
 
 ## ut_parse
 
@@ -72,9 +73,10 @@ Please find below some selected samples of commands and their respective output.
 | `ut_parse(url, list)`
 ```
 **Output**
-|_time                       |list              |url |ut_domain |ut_domain_without_tld|ut_fragment|ut_netloc|ut_params|ut_path                                                          |ut_port|ut_query|ut_scheme|ut_subdomain|ut_subdomain_count|ut_subdomain_level_1|ut_tld|
-|----------------------------|------------------|----|----------|---------------------|-----------|---------|---------|-----------------------------------------------------------------|-------|--------|---------|------------|------------------|--------------------|------|
-|2021-12-16T10:30:00.000+0000|*                 |https://www.splunk.com/en_us/blog/security/ut-parsing-domains-like-house-slytherin.html|splunk.com|splunk               |None       |www.splunk.com|None     |/en_us/blog/security/ut-parsing-domains-like-house-slytherin.html|80     |None    |https    |www         |1                 |www                 |com   |
+
+| _time                        | list | url                                                                                     | ut_domain  | ut_domain_without_tld | ut_fragment | ut_netloc      | ut_params | ut_path                                                           | ut_port | ut_query | ut_scheme | ut_subdomain | ut_subdomain_count | ut_subdomain_level_1 | ut_tld |
+|------------------------------|------|-----------------------------------------------------------------------------------------|------------|-----------------------|-------------|----------------|-----------|-------------------------------------------------------------------|---------|----------|-----------|--------------|--------------------|----------------------|--------|
+| 2021-12-16T10:30:00.000+0000 | *    | https://www.splunk.com/en_us/blog/security/ut-parsing-domains-like-house-slytherin.html | splunk.com | splunk                | None        | www.splunk.com | None      | /en_us/blog/security/ut-parsing-domains-like-house-slytherin.html | 443     | None     | https     | www          | 1                  | www                  | com    |
 
 ## ut_shannon
 
@@ -86,13 +88,15 @@ Please find below some selected samples of commands and their respective output.
 ```
 
 **Output**
-|_time                       |url               |ut_shannon|
-|----------------------------|------------------|----------|
-|2021-12-16T10:32:19.000+0000|buttercup         |2.725480556997868|
+
+| _time                        | url       | ut_shannon        |
+|------------------------------|-----------|-------------------|
+| 2021-12-16T10:32:19.000+0000 | buttercup | 2.725480556997868 |
 
 ## ut_countset
 
 **SPL**
+
 ```
 |makeresults count=1 
 | eval url="buttercup"
@@ -101,9 +105,10 @@ Please find below some selected samples of commands and their respective output.
 ```
 
 **Output**
-|_time                       |set               |url |ut_countset                                  |
-|----------------------------|------------------|----|---------------------------------------------|
-|2021-12-16T10:34:17.000+0000|tu                |buttercup|{"ut_countset": {"sum": 4, "74": 2, "75": 2}}|
+
+| _time                        | set | url       | ut_countset                                   |
+|------------------------------|-----|-----------|-----------------------------------------------|
+| 2021-12-16T10:34:17.000+0000 | tu  | buttercup | {"ut_countset": {"sum": 4, "74": 2, "75": 2}} |
 
 
 ## Development
@@ -137,11 +142,11 @@ This will create an app package in `dist/utbox.tar.gz`
 
 ## License
 
-Please refer to the [License on Splunkbase.](https://cdn.apps.splunk.com/static/misc/eula.html)
+Please refer to the [License on Splunkbase.](https://cdn.splunkbase.splunk.com/static/misc/eula.html)
 
 ## Bug Fixes / Enhancement Requests
 
-🐞 ✍🏼 💡 Create [issue](https://github.com/splunk/utbox/issues/new) with appropriate label to submit the request.
+🐞 ✍🏼 💡 Create [issue](https://github.com/splunk/utbox/issues/new) with appropriate labels to submit the request.
 
 ## Troubleshooting
 

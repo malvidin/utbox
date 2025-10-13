@@ -1,65 +1,75 @@
-import sys
 import csv
-import logging
+import sys
 
-import ut_log
+import update_tld_lists
+import ut_log_lib
 import ut_parse_lib
 
 ########
 # MAIN #
 ########
-try:
-    logger = ut_log.setup_logger()
-except:
-    logger = logging.getLogger(__name__)
-    logger.warning("Failed to instantiate logger, falling back to default logger")
 
-header = [
-    'url',
-    'list',
-    'ut_scheme',
-    'ut_netloc',
-    'ut_path',
-    'ut_params',
-    'ut_query',
-    'ut_fragment',
-    'ut_domain',
-    'ut_tld',
-    'ut_domain_without_tld',
-    'ut_subdomain',
-    'ut_port',
-    'ut_subdomain_parts',
-    'ut_subdomain_count',
-]
+logger = ut_log_lib.setup_logger()
 
-csv_in = csv.DictReader(
-    sys.stdin)  # automatically use the first line as header
-csv_out = csv.DictWriter(sys.stdout, header)
-csv_out.writerow(dict(zip(header, header)))  # write header
 
-TLDList = None
+def main():
+    header = [
+        "url",
+        "list",
+        "ut_scheme",
+        "ut_netloc",
+        "ut_path",
+        "ut_params",
+        "ut_query",
+        "ut_fragment",
+        "ut_domain",
+        "ut_tld",
+        "ut_domain_without_tld",
+        "ut_subdomain",
+        "ut_port",
+        "ut_subdomain_parts",
+        "ut_subdomain_count",
+    ]
 
-for row in csv_in:
     try:
-        url = row['url'].strip()
+        update_tld_lists.update_all(max_age_days=30)
     except Exception as e:
-        logger.error("Did not find url field in row, continuing with next row")
-        continue
+        logger.error("Failed to update TLD lists with error: %s" % str(e))
 
-    if TLDList == None:
+    csv_in = csv.DictReader(sys.stdin)  # use the first line as the CSV header
+    csv_out = csv.DictWriter(sys.stdout, header)
+    csv_out.writeheader()  # write header
+
+    psl_names = ["iana", "icann", "mozilla", "custom"]
+    psl_options = {}
+    for l in psl_names:
         try:
-            l = "pouet"
-            if 'list' in row:
-                l = row['list'].strip().lower()
-            TLDList = ut_parse_lib.loadTLDFile(l)
+            psl_options[l] = ut_parse_lib.get_public_suffix_list(l)
         except Exception as e:
-            logger.error("Failed to load TLD list with error: %s" % str(e))
+            logger.error("Failed to load TLD list %s with error: %s" % str(l), str(e))
 
-    try:
-        res = ut_parse_lib.parse_extended(url, TLDList)
-        row.update(res)
-    except Exception as e:
-        logger.error("Got error %s on with url %s" % (str(e), url))
+    for row in csv_in:
+        if "url" not in row:
+            continue
 
-    # return row to Splunk
-    csv_out.writerow(row)
+        url = row["url"].strip()
+
+        list_name = row.get("list", "").strip().lower()
+        if list_name not in psl_names:
+            label, psl = next(iter(psl_options.items()))
+            logger.warning("List name %s not found, using list %s" % (list_name, label))
+        else:
+            psl = psl_options[list_name]
+
+        try:
+            res = ut_parse_lib.parse_extended(url, psl)
+            row.update(res)
+        except Exception as e:
+            logger.error("Got error %s on with url %s" % (str(e), url))
+
+        # return row to Splunk
+        csv_out.writerow(row)
+
+
+if __name__ == "__main__":
+    main()

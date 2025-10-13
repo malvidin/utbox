@@ -1,7 +1,13 @@
-import os
+import csv
 import re
 import sys
-import csv
+from collections import defaultdict
+from pathlib import Path
+
+import ut_log_lib
+
+logger = ut_log_lib.setup_logger()
+
 """
 Module that compute a ratio between the word length and the length of it's known composing words
 Use the wordlist meaning.dic (one word per line). This list is loaded once per batch of 50,000
@@ -14,43 +20,36 @@ This is a very naive algorithm, this should be improved.
 """
 
 
-def loadWordlist():
-    f_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                          "meaning.dic")
+def load_word_list(f_path):
 
-    f_in = open(f_path, "r")
-    WORDLIST = {}
+    word_dict = defaultdict(set)
 
-    line = f_in.readline()
-    while line:
-        line = line.lower().strip()
-        le = len(line)
+    with open(f_path, newline="") as f:
+        logger.debug(f"Loading {f_path}")
+        reader = csv.reader(f)
+        header = next(reader)
+        word_idx = header.index("word")
 
-        # do we have a words of the same size already?
-        if not le in WORDLIST:
-            WORDLIST[le] = []
+        for line in reader:
+            word = line[word_idx].lower().strip()
+            word_len = len(word)
 
-        # check required in case of duplicated words.
-        if not line in WORDLIST[le]:
-            WORDLIST[le].append(re.compile(line))
+            word_dict[word_len].add(re.compile(word))
 
-        line = f_in.readline()
-    f_in.close()
-
-    return WORDLIST
+    return word_dict
 
 
-def meaning(WORDLIST, word):
+def meaning(word_list, word):
 
     word = word.lower()
-    wlen = len(word)
+    word_len = len(word)
     s_len = 0
 
-    for i in range(wlen, 0, -1):
-        if not i in WORDLIST:
+    for i in range(word_len, 0, -1):
+        if not i in word_list:
             continue
 
-        for preg_t in WORDLIST[i]:
+        for preg_t in word_list[i]:
 
             if preg_t.search(word):
                 word = preg_t.sub(".", word)
@@ -58,7 +57,7 @@ def meaning(WORDLIST, word):
 
     ratio = 0.0
     if s_len:
-        ratio = float(s_len) / float(wlen)
+        ratio = float(s_len) / float(word_len)
 
     return ratio
 
@@ -66,18 +65,24 @@ def meaning(WORDLIST, word):
 ########
 # MAIN #
 ########
-WORDLIST = loadWordlist()
-header = ['word', 'ut_meaning_ratio']
+def main():
+    meaning_path = Path(__file__).resolve().parents[1] / "lookups" / "ut_meaning.csv"
+    word_list = load_word_list(meaning_path)
 
-csv_in = csv.DictReader(
-    sys.stdin)  # automatically use the first line as header
-csv_out = csv.DictWriter(sys.stdout, header)
-csv_out.writerow(dict(zip(header, header)))  # write header
+    header = ["word", "ut_meaning_ratio"]
 
-for row in csv_in:
-    word = row['word'].strip()
+    csv_in = csv.DictReader(sys.stdin)  # use the first line as the CSV header
+    csv_out = csv.DictWriter(sys.stdout, header)
+    csv_out.writeheader()  # write header
 
-    row['ut_meaning_ratio'] = meaning(WORDLIST, word)
+    for row in csv_in:
+        word = row["word"].strip()
 
-    # return row to Splunk
-    csv_out.writerow(row)
+        row["ut_meaning_ratio"] = meaning(word_list, word)
+
+        # return row to Splunk
+        csv_out.writerow(row)
+
+
+if __name__ == "__main__":
+    main()

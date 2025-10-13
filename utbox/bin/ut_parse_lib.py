@@ -1,295 +1,182 @@
-import os
+import json
 import re
 import sys
-import csv
-import json
-import codecs
+from io import StringIO
+from ipaddress import ip_address
+from pathlib import Path
+from urllib.parse import urlparse
 
-import ut_log
+lib_path = Path(__file__).resolve().parents[1] / "lib"
+sys.path.append(str(lib_path))
 
-try:
-	from urlparse import urlparse
-except ImportError:
-	from urllib.parse import urlparse
+import publicsuffixlist
+
+import ut_log_lib
 
 preg_rfc1808 = re.compile("://")
-preg_ipv4 = re.compile("^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+preg_ipv4 = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+preg_ipv6 = re.compile(r"^\[[0-9A-Fa-f:]+]$")
+
+urllib_schemes = {
+    "ftp": "21",
+    "http": "80",
+    "https": "443",
+    "imap": "143",
+    "sftp": "22",
+    "sip": "5060",
+    "ssh": "22",
+}
 
 #############
 # FUNCTIONS #
 #############
-logger = ut_log.setup_logger()
-
-# IANA : http://data.iana.org/TLD/tlds-alpha-by-domain.txt
-# Mozilla: https://publicsuffix.org/list/public_suffix_list.dat
+logger = ut_log_lib.setup_logger()
 
 
-def _loadIANAList(filename="suffix_list_iana.dat"):
-    TLDFILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                           filename)  #"suffix_list_iana.dat")
+def get_public_suffix_list(tld_list="iana"):
+    valid_lists = {"iana", "icann", "mozilla", "custom"}
+    if tld_list not in valid_lists:
+        logger.error(f"Invalid TLD list {tld_list}, loading IANA list.")
+        tld_list = "iana"
 
-    TLD = {'regulars': [], 'wildcards': [], 'exceptions': []}
+    from publicsuffixlist import PublicSuffixList
+    default_config = Path(__file__).resolve().parents[1] / "default"
+    local_config = Path(__file__).resolve().parents[1] / "local"
 
-    try:
-        f = codecs.open(TLDFILE, "r", "utf-8")
-    except Exception as e:
-        raise e
+    mozilla_list = local_config / "public_suffix_list.dat"
+    if not mozilla_list.is_file():
+        mozilla_list = default_config / "public_suffix_list.dat"
 
-    line = f.readline()
-    while line:
-        # skip comment or empty line
-        if re.search('^\s*(#|$)', line):
-            line = f.readline()
-            continue
+    iana_list = local_config / "tlds-alpha-by-domain.txt"
+    if not iana_list.is_file():
+        iana_list = default_config / "tlds-alpha-by-domain.txt"
 
-        line = line.strip().lower()
-        TLD['regulars'].append(line)  # com
-        line = f.readline()
-    
-    f.close()
+    custom_list = local_config / "public_suffix_list_custom.dat"
 
-    return TLD
+    # Use IANA list
+    if tld_list == "iana":
+        only_icann = True
+        f = StringIO()
+        # Put ICANN comments so it can be loaded by PublicSuffixList
+        f.write("// ===BEGIN ICANN DOMAINS===\n")
+        with open(iana_list) as f_iana:
+            for line in f_iana:
+                if not line.startswith("#"):
+                    f.write(line)
+        f.write(iana_list.read_text())
+        f.write("\n// ===END ICANN DOMAINS===\n")
+        f.seek(0)
+        logger.info("loaded ICANN domains")
+        return PublicSuffixList(source=f, accept_unknown=False, only_icann=only_icann)
+
+    # Use base PublicSuffixList
+    if tld_list in ("mozilla", "icann"):
+        tld_list_path = mozilla_list
+        only_icann = True if tld_list == "icann" else False
+
+    # Use custom list
+    else:
+        tld_list_path = custom_list
+        only_icann = False
+
+    with open(tld_list_path) as f:
+        psl = PublicSuffixList(source=f, accept_unknown=False, only_icann=only_icann)
+
+    return psl
 
 
-def _loadMozillaList():
+def extended_split(
+    scheme: str,
+    netloc: str,
+    suffix_list: publicsuffixlist.PublicSuffixList,
+) -> dict:
     """
-	Load the Mozilla Suffix List and pre-process the TLDs.
-
-	Ex: 'com' for '.com' or xn-<value>
-	Ex: http://xn--3et6hy9whxi095c.xn--fiqz9s/
-	
-	*.ck
-	!www.ck
-	"""
-    TLDFILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                           "suffix_list_mozilla.dat")
-
-    TLD = {'regulars': [], 'wildcards': [], 'exceptions': []}
-
-    try:
-        f = codecs.open(TLDFILE, "r", "utf-8")
-    except Exception as e:
-        raise e
-
-    line = f.readline()
-    while line:
-        # skip comment or empty line
-        if re.search('^(\s*$|//)', line):
-            line = f.readline()
-            continue
-
-        # stop at the first whitespace as stated on https://publicsuffix.org/list/
-        line = line.lower()
-        ret = re.search('^\s*([^\s]+)', line)
-        if ret:
-            tld_raw = ret.group(1)
-            #tld_pun = tld_raw.encode('idna')
-
-            c = tld_raw[0]
-            if c == '*':
-                TLD['wildcards'].append(tld_raw[2:])  # *.ck => ck
-            elif c == '!':
-                TLD['exceptions'].append(tld_raw[1:])  # !www.ck => www.ck
-            else:
-                TLD['regulars'].append(tld_raw)  # ro.com
-        line = f.readline()
-
-    f.close()
-
-    return TLD
-
-
-def loadTLDFile(tldlist="iana"):
-
-    if tldlist == "mozilla":
-        return _loadMozillaList()
-    elif tldlist == "custom":
-        return _loadIANAList(
-            "suffix_list_custom.dat")  #dirty hack, but works ;)
-    elif tldlist == "*":
-        # load all lists
-        Moz = _loadMozillaList()
-        Cus = _loadIANAList("suffix_list_custom.dat")
-        Ian = _loadIANAList()
-
-        TLD = {
-            'regulars':
-            list(set(Moz['regulars'] + Cus['regulars'] + Ian['regulars'])),
-            'wildcards':
-            list(set(Moz['wildcards'] + Cus['wildcards'] + Ian['wildcards'])),
-            'exceptions':
-            list(set(Moz['exceptions'] + Cus['exceptions'] +
-                     Ian['exceptions']))
-        }
-
-        return TLD
-
-    return _loadIANAList()
-
-
-def findTLD(netloc, TLDList):
+    Extensive split of the domain name with Mozilla Suffix List.
     """
-	Require a TLDList initialized by readTLDFile(). 
-	The netloc args _must_ be lower-ed before entering this function.
-
-	COUAC  => None
-	yo.COM => com
-	com    => com
-	pouet.ck => pouet.ck
-	www.ck   => ck
-	google.com     => com
-	www.google.com => com
-	www.google.co.uk => co.uk
-	www.google.bl.uk => uk
-	www.bl.ck => bl.ck
-	bl.www.ck => ck
-	yoyo.pouet.fujikawaguchiko.yamanashi.jp => fujikawaguchiko.yamanashi.jp
-	city.pouet.kawasaki.jp => pouet.kawasaki.jp
-	pouet.city.kawasaki.jp => kawasaki.jp
-	"""
-    wildcards = TLDList['wildcards']
-    exceptions = TLDList['exceptions']
-    regulars = TLDList['regulars']
-
-    TLD = None
-    parts = netloc.split('.')
-    items = []
-    is_wildcard = False
-
-    i = len(parts)
-    while (i > 0) and (TLD == None):
-        i -= 1
-
-        items.insert(0, parts[i])
-        candidate = '.'.join(items)
-
-        if candidate in regulars:
-            continue
-
-        # is it a wildcard?
-        if candidate in wildcards:
-            is_wildcard = True
-            continue
-        elif is_wildcard:
-            if candidate in exceptions:
-                items.pop(0)
-                candidate = '.'.join(items)
-            TLD = candidate
-        else:
-            items.pop(0)
-            if len(items) > 0:
-                TLD = '.'.join(items)
-
-    if (TLD == None) and len(items) > 0:
-        TLD = '.'.join(items)
-
-    return TLD
-
-
-def extended_split(netloc, TLDList):
-    """
-	Extensive split of the domain name with Mozilla Suffix List.
-	"""
 
     ret = {
-        'ut_domain': "None",
-        'ut_tld': "None",
-        'ut_domain_without_tld': "None",
-        'ut_subdomain': "None",
-        'ut_subdomain_parts': "None",
-        'ut_subdomain_count': "0",
-        'ut_port': "80"
+        "ut_domain": "None",
+        "ut_tld": "None",
+        "ut_domain_without_tld": "None",
+        "ut_subdomain": "None",
+        "ut_subdomain_parts": "None",
+        "ut_subdomain_count": "0",
+        "ut_port": "None",
     }
 
     # fix for base64
     host_without_port = netloc.lower()
 
     # extract the port from the netloc and remove it
-    tmp = netloc.split(':')
-    if len(tmp) > 1:
-        ret['ut_port'] = tmp.pop()
-        host_without_port = tmp[0].lower()
-    netloc = ':'.join(tmp)
+    # IPv6 address
+    if ":" in netloc and netloc[:-1] != "]":
+        n, p = netloc.rsplit(":", 1)
+        ret["ut_port"] = p
+        host_without_port = n
+
+    # If a port isn't in the netloc, add ports for common schemes
+    if ret["ut_port"] == "None" and scheme in urllib_schemes:
+        ret["ut_port"] = urllib_schemes[scheme]
 
     # find the TLD
-    t = findTLD(host_without_port, TLDList)
-    if t == None:
+    tld = suffix_list.publicsuffix(host_without_port)
 
-        # if this is an IPv4 we just copy it
-        if preg_ipv4.search(netloc):
-            ret['ut_domain'] = netloc
-            ret['ut_domain_without_tld'] = netloc
+    if tld is None:
+
+        # if this is an IP, we just copy it
+        if preg_ipv4.search(host_without_port) or preg_ipv6.search(host_without_port):
+            try:
+                ip = ip_address(host_without_port.strip("[]"))
+                ret["ut_domain"] = ret["ut_domain_without_tld"] = ip.compressed
+            except ValueError:
+                ret["ut_domain"] = ret["ut_domain_without_tld"] = host_without_port
 
         return ret
-    ret['ut_tld'] = t
 
-    tld_len = len(ret['ut_tld'])
-    net_len = len(netloc)
+    ret["ut_tld"] = tld
 
-    if tld_len == net_len:
+    all_parts = suffix_list.privateparts(host_without_port)
+    if all_parts is None:
         return ret
 
-    parts = netloc[0:(net_len - tld_len - 1)].split('.')
+    subdomain_parts, domain = list(all_parts[:-1]), all_parts[-1]
+    domain_without_tld = domain.split(".", 1)[0]
 
-    ret['ut_domain_without_tld'] = parts.pop()
+    ret["ut_domain"] = domain
+    ret["ut_domain_without_tld"] = domain_without_tld
 
-    ret['ut_domain'] = '.'.join([ret['ut_domain_without_tld'], ret['ut_tld']])
-
-    number_of_subdomains = len(parts)
+    number_of_subdomains = len(subdomain_parts)
     if number_of_subdomains:
-        ret['ut_subdomain_count'] = number_of_subdomains
-        ret['ut_subdomain'] = '.'.join(parts)
+        ret["ut_subdomain_count"] = f"{number_of_subdomains}"
+        ret["ut_subdomain"] = ".".join(subdomain_parts)
 
         sp = {}
-        i = number_of_subdomains
-        for p in parts:
-            label = 'ut_subdomain_level_%s' % i
-            sp[label] = p
-            i -= 1
-        ret['ut_subdomain_parts'] = json.dumps(sp)
+        for i, p in zip(range(number_of_subdomains, 0, -1), subdomain_parts):
+            sp[f"ut_subdomain_level_{i}"] = p
+
+        ret["ut_subdomain_parts"] = json.dumps(sp)
 
     return ret
 
 
 def parse_simple(url):
     # Following the syntax specifications in RFC 1808, urlparse recognizes
-    # a netlog only if it is properly introduced by '//'.
+    # a netloc only if it is properly introduced by '//'.
     if not preg_rfc1808.search(url):
-        url = "//%s" % url
+        url = f"//{url}"
 
     try:
-        o = urlparse(url)
+        url_vals = urlparse(url)
     except Exception as e:
         raise e
 
-    res = {}
-    res['ut_scheme'] = "None"
-    res['ut_netloc'] = "None"
-    res['ut_path'] = "None"
-    res['ut_params'] = "None"
-    res['ut_query'] = "None"
-    res['ut_fragment'] = "None"
-
-    if o.scheme:
-        res['ut_scheme'] = o.scheme
-    if o.netloc:
-        res['ut_netloc'] = o.netloc
-    if o.path:
-        res['ut_path'] = o.path
-    if o.params:
-        res['ut_params'] = o.params
-    if o.query:
-        res['ut_query'] = o.query
-    if o.fragment:
-        res['ut_fragment'] = o.fragment
-
-    return res
+    keys = ["ut_scheme", "ut_netloc", "ut_path", "ut_params", "ut_query", "ut_fragment"]
+    return {k: v if v else "None" for k, v in zip(keys, url_vals)}
 
 
-def parse_extended(url, TLDList):
-
+def parse_extended(url, suffix_list: publicsuffixlist.PublicSuffixList):
     res = parse_simple(url)
-    r = extended_split(res['ut_netloc'], TLDList)
+    r = extended_split(res["ut_scheme"], res["ut_netloc"], suffix_list)
     res.update(r)
 
     return res
