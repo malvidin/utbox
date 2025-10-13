@@ -6,8 +6,13 @@ from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlparse
 
-lib_path = Path(__file__).resolve().parents[1] / "lib"
-sys.path.append(str(lib_path))
+if sys.version_info[:2] == (3, 7):
+    lib_path = Path(__file__).resolve().parents[1] / "lib37"
+    sys.path.append(str(lib_path))
+else:
+    assert sys.version_info[:2] == (3, 9)
+    lib_path = Path(__file__).resolve().parents[1] / "lib"
+    sys.path.append(str(lib_path))
 
 import publicsuffixlist
 

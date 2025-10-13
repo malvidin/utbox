@@ -46,7 +46,7 @@ def main():
         try:
             psl_options[l] = ut_parse_lib.get_public_suffix_list(l)
         except Exception as e:
-            logger.error("Failed to load TLD list %s with error: %s" % str(l), str(e))
+            logger.error("Failed to load TLD list %s with error: %s" % (str(l), str(e)))
 
     for row in csv_in:
         if "url" not in row:
