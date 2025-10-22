@@ -62,7 +62,7 @@ def get_public_suffix_list(tld_list="iana"):
     if tld_list == "iana":
         only_icann = True
         f = StringIO()
-        # Put ICANN comments so it can be loaded by PublicSuffixList
+        # Put ICANN comments so IANA TLDS can be loaded by PublicSuffixList
         f.write("// ===BEGIN ICANN DOMAINS===\n")
         with open(iana_list) as f_iana:
             for line in f_iana:
@@ -71,7 +71,7 @@ def get_public_suffix_list(tld_list="iana"):
         f.write(iana_list.read_text())
         f.write("\n// ===END ICANN DOMAINS===\n")
         f.seek(0)
-        logger.info("loaded ICANN domains")
+        logger.info("loaded IANA domains")
         return PublicSuffixList(source=f, only_icann=only_icann)
 
     # Use base PublicSuffixList

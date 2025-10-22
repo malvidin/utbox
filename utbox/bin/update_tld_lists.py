@@ -1,8 +1,11 @@
+import logging
 import re
-from datetime import datetime, timedelta
+import sys
+import xml.dom.minidom
+import xml.sax.saxutils
 from pathlib import Path
 
-import sys
+from generate_psl_lookup import generate_lookup
 
 if sys.version_info[:2] == (3, 7):
     lib_path = Path(__file__).resolve().parents[1] / "lib37"
@@ -18,10 +21,24 @@ import ut_log_lib
 
 logger = ut_log_lib.setup_logger()
 
+stdout_handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(stdout_handler)
 
-def download_psl() -> str:
+
+# Empty introspection routine
+def do_scheme():
+    pass
+
+
+# Empty validation routine
+def validate_arguments():
+    pass
+
+
+def download_psl(psl_url=None) -> str:
     # Download the latest public suffix list
-    resp = requests.get("https://publicsuffix.org/list/public_suffix_list.dat")
+    psl_url = psl_url or "https://publicsuffix.org/list/public_suffix_list.dat"
+    resp = requests.get(psl_url)
     resp.raise_for_status()
     public_suffix_list = resp.text
 
@@ -30,12 +47,15 @@ def download_psl() -> str:
         "===BEGIN ICANN DOMAINS===" in public_suffix_list[:2000]
     ), "Downloaded list does not appear to be a valid Mozilla PSL file."
 
+    logger.info("Successfully downloaded Mozilla Public Suffix List.")
+
     return public_suffix_list
 
 
-def download_iana() -> str:
+def download_iana(iana_url=None) -> str:
     # Download the latest IANA list
-    resp = requests.get("https://data.iana.org/TLD/tlds-alpha-by-domain.txt")
+    iana_url = iana_url or "https://data.iana.org/TLD/tlds-alpha-by-domain.txt"
+    resp = requests.get(iana_url)
     resp.raise_for_status()
     iana_list = resp.text
 
@@ -43,6 +63,8 @@ def download_iana() -> str:
     assert re.match(
         r"# Version \d+, Last Updated", iana_list[:2000]
     ), "Downloaded list does not appear to be a valid IANA TLD list."
+
+    logger.info("Successfully downloaded IANA TLD list.")
 
     return iana_list
 
@@ -58,7 +80,7 @@ def update_custom_list(custom_list: Path, public_suffix_list: str):
             prev_custom_list_lines = prev_custom_list.splitlines()
     else:
         custom_list.parent.mkdir(parents=True, exist_ok=True)
-        with open (custom_list, "w") as f:
+        with open(custom_list, "w") as f:
             f.write(public_suffix_list)
             f.write("\n")
             custom_lines = [
@@ -132,93 +154,134 @@ def update_custom_list(custom_list: Path, public_suffix_list: str):
         f.writelines(line + "\n" for line in prev_custom_list_lines)
 
 
-def update_mozilla_list(max_age_days=30):
+def update_mozilla_list(public_suffix_list):
     """Updates Mozilla Public Suffix List and Custom Suffix List if the Public Suffix List is out of date."""
-    date_now = datetime.now()
 
-    default_config_dir = Path(__file__).resolve().parents[1] / "default"
     local_config_dir = Path(__file__).resolve().parents[1] / "local"
     if not local_config_dir.is_dir():
         local_config_dir.mkdir()
 
-    mozilla_default_path = default_config_dir / "public_suffix_list.dat"
     mozilla_path = local_config_dir / "public_suffix_list.dat"
     custom_list_path = local_config_dir / "public_suffix_list_custom.dat"
 
-    update_mozilla = True
-
     # If the files are old, update Mozilla Public Suffix List and Custom List
-    valid_paths = [p for p in [mozilla_path, mozilla_default_path] if p.is_file()]
-    if valid_paths:
-        last_mod_time = max(p.stat().st_mtime for p in valid_paths)
-        last_mod_date = datetime.fromtimestamp(last_mod_time)
-        if date_now - last_mod_date < timedelta(days=max_age_days):
-            # No update needed
-            update_mozilla = False
-            logger.info("Mozilla list is up to date.")
-        else:
-            logger.info("Mozilla list is out of date, attempting to update.")
+    logger.info("Attempting to update Mozilla Public Suffix List.")
 
-    if update_mozilla:
-        public_suffix_list = download_psl()
+    # Write the downloaded list to the custom list
+    with open(mozilla_path, "w") as f:
+        f.write(public_suffix_list)
+    logger.info(
+        "Wrote Mozilla Public Suffix List to app's local/public_suffix_list.dat"
+    )
 
-        # Write the downloaded list to the custom list
-        with open(mozilla_path, "w") as f:
-            f.write(public_suffix_list)
-
-        # Update the custom list
-        update_custom_list(custom_list_path, public_suffix_list)
-
-    return update_mozilla
+    # Update the custom list
+    update_custom_list(custom_list_path, public_suffix_list)
+    logger.info(
+        "Wrote Custom Public Suffix List to app's local/public_suffix_list_custom.dat"
+    )
 
 
-def update_iana_list(max_age_days=30):
-    """Updates IANA TLD List if it is out of date."""
-    date_now = datetime.now()
+def update_iana_list(iana_tlds=None):
+    """Updates IANA TLD List."""
 
-    default_config_dir = Path(__file__).resolve().parents[1] / "default"
     local_config_dir = Path(__file__).resolve().parents[1] / "local"
     if not local_config_dir.is_dir():
         local_config_dir.mkdir()
 
-    iana_default_path = default_config_dir / "tlds-alpha-by-domain.txt"
     iana_path = local_config_dir / "tlds-alpha-by-domain.txt"
 
-    update_iana = True
+    logger.info("Attempting to update IANA TLD list.")
 
-    # If the files are old, update IANA TLD List
-    valid_paths = [p for p in [iana_path, iana_default_path] if p.is_file()]
-    if valid_paths:
-        last_mod_time = max(p.stat().st_mtime for p in valid_paths)
-        last_mod_date = datetime.fromtimestamp(last_mod_time)
-        if date_now - last_mod_date < timedelta(days=max_age_days):
-            # No update needed
-            update_iana = False
-            logger.info("IANA list is up to date.")
-        else:
-            logger.info("IANA list is out of date, attempting to update.")
+    logger.info("Downloaded IANA TLDs")
 
-    if update_iana:
-        iana_tlds = download_iana()
-        logger.info("Downloaded IANA TLDs")
+    with open(iana_path, "w") as f:
+        f.write(iana_tlds)
+        logger.info(f"Wrote IANA TLDs to {iana_path}")
 
-        with open(iana_path, "w") as f:
-            f.write(iana_tlds)
-            logger.info(f"Wrote IANA TLDs to {iana_path}")
-
-    return update_iana
+    logger.info("Wrote IANA TLDs to app's local/tlds-alpha-by-domain.txt ")
 
 
-def update_all(max_age_days: int):
-    logger.info("Updating lists over max age of %s days.", max_age_days)
-    update_mozilla_list(max_age_days=max_age_days)
-    update_iana_list(max_age_days=max_age_days)
+def update_all():
+    psl_url = iana_url = create_lookup = None
+    try:
+        config_str = sys.stdin.read()
+        logger.info(config_str)
+
+        # parse the config XML
+        doc = xml.dom.minidom.parseString(config_str)
+        root = doc.documentElement
+
+        conf_node = root.getElementsByTagName("configuration")[0]
+        if not conf_node:
+            logging.error("No configuration found in input")
+            return ""
+
+        stanza = conf_node.getElementsByTagName("stanza")[0]
+        if not stanza:
+            logging.error("No stanza found in input")
+            return ""
+
+        stanza_name = stanza.getAttribute("name")
+        if not stanza_name:
+            logging.error("No stanza name found in input")
+            return ""
+
+        params = stanza.getElementsByTagName("param")
+        for param in params:
+            param_name = param.getAttribute("name")
+            if (
+                param_name
+                and param.firstChild
+                and param.firstChild.nodeType == param.firstChild.TEXT_NODE
+            ):
+                data = param.firstChild.data.strip()
+                if not data:
+                    continue
+                if param_name == "PSL_URL":
+                    psl_url = data
+                if param_name == "IANA_URL":
+                    iana_url = data
+                if param_name == "create_lookup":
+                    create_lookup = data
+
+    except Exception as e:
+        raise Exception("Error getting Splunk configuration via STDIN: %s" % str(e))
+
+    if create_lookup and create_lookup.lower() in ["1", "true", "t", "yes", "y"]:
+        create_lookup = True
+
+    try:
+        public_suffix_list = download_psl(psl_url=psl_url)
+        update_mozilla_list(public_suffix_list)
+    except Exception as e:
+        logger.error("Failed to update PSL with error: %s" % str(e))
+
+    try:
+        iana_tlds = download_iana(iana_url=iana_url)
+        update_iana_list(iana_tlds)
+    except Exception as e:
+        logger.error("Failed to update IANA TLD list with error: %s" % str(e))
+
+    if create_lookup:
+        try:
+            logger.info("Generating PSL lookup CSV file.")
+            generate_lookup()
+        except Exception as e:
+            logger.error("Failed to generate PSL lookup file with error: %s" % str(e))
+
+    return ""
 
 
-def main():
-    update_mozilla_list()
-    update_iana_list()
-
-
+# Script must implement these args: scheme, validate-arguments
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "--scheme":
+            do_scheme()
+        elif sys.argv[1] == "--validate-arguments":
+            validate_arguments()
+        else:
+            pass
+    else:
+        update_all()
+
+    sys.exit(0)

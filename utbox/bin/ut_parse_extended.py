@@ -1,7 +1,6 @@
 import csv
 import sys
 
-import update_tld_lists
 import ut_log_lib
 import ut_parse_lib
 
@@ -30,11 +29,6 @@ def main():
         "ut_subdomain_parts",
         "ut_subdomain_count",
     ]
-
-    try:
-        update_tld_lists.update_all(max_age_days=30)
-    except Exception as e:
-        logger.error("Failed to update TLD lists with error: %s" % str(e))
 
     csv_in = csv.DictReader(sys.stdin)  # use the first line as the CSV header
     csv_out = csv.DictWriter(sys.stdout, header)

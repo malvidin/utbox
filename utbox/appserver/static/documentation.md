@@ -60,13 +60,14 @@ In case of failure, a log entry will be written to `$SPLUNK_HOME/var/log/splunk/
 
 The `list` parameter can be one of:
 
+-  `iana` to use the IANA TLDs (contains entries like 'UK', but will not contain 'CO.UK', for example).
+-  `icann` to use the ICANN portion of the Mozilla Suffix List.
 -  `mozilla` to use the Mozilla Suffix List (complete list which includes entries like 'googlecode.com' as a TLD).
--  `iana` to use the IANA portion of the Mozilla Suffix list (contains entries like 'UK' but will not contain 'CO.UK' for example).
 -  `custom` to use a 'custom' list
 -  ~~`*` to use all of the 3 above lists (mozilla, iana, and custom)~~
 
 - By default, the iana list is chosen and the custom list can be edited by adding/removing entries into `$SPLUNK_HOME/etc/apps/utbox/bin/suffix_list_custom.dat`
-(one TLD per line, lowecase, punycode IDNA format like xn-...).
+(one TLD per line, lowercase, punycode IDNA format like xn-...).
 
 - The list parameter must be set with an eval command like in the following examples:
 
@@ -81,14 +82,14 @@ The `list` parameter can be one of:
 ... 
 | fields cs_url 
 | eval list = "custom" 
-| lookup ut_parse_extended_lookup cs_url AS
+| lookup ut_parse_extended_lookup url AS cs_url list AS list
 ```
 
 In case of failure, a log entry will be written to `$SPLUNK_HOME/var/log/splunk/utbox.log`
 
 ### \`ut_unwrap(word)\`
 
-Unwrap rewritten URLs from Barracude LinkProtect, Cisco Secure Web, FireEye URL Protection, Microsoft SafeLinks, and Proofpoint URL Defense. Because vendors also rewrite each others links, the lookup will attempt to unwrap up to 10 times.
+Unwrap rewritten URLs from Barracuda LinkProtect, Cisco Secure Web, FireEye URL Protection, Microsoft SafeLinks, and Proofpoint URL Defense. Because vendors also rewrite each other's links, the lookup will attempt to unwrap up to 10 times.
 
 ### \`ut_shannon(word)\`
 
@@ -171,7 +172,7 @@ For example, if you want to count the number of dots in the field `countme`, you
 ```
 
 -  In the previous example, we rely on the field sum because we only count for one specific char (the dot).
--  To have the number of dots in a set larger than just the dot, we would have accessed to its individual counter represented by the value of 'dot' in hexadecimal ('.' = 0x2E). This could have been done in the previous example as well:
+-  To have the number of dots in a set larger than just the dot, we would have accessed to its individual counter represented by the value of 'dot' in hexadecimal (`'.'` = 0x2E). This could have been done in the previous example as well:
 ```
 ... 
 | eval countme="a.b.c.domain.tld" 
@@ -202,7 +203,7 @@ Return a ratio between the length of the word and all the words composing it bas
 
 ### \`ut_bayesian(word)\`
 
-Study the n-gram (2, 3, and 4) distribution of domains to compute the probability that an input domain is either bad regarding the n-grams composing it. In short, this is useful to identify DGA domains. The lists are in the `lookups` directory of the app, and can be managed with lookup commands or a lookup editor. The bad list came from malwaredomainlist.com and the good list came from alexa.com. They both contain around 27,000 entries.
+Study the n-gram (2, 3, and 4) distribution of domains to compute the probability that an input domain is bad regarding the n-grams composing it. In short, this is useful to identify DGA domains. The lists are in the `lookups` directory of the app, and can be managed with lookup commands or a lookup editor. The bad list came from malwaredomainlist.com and the good list came from alexa.com. They both contain around 27,000 entries.
 
 The output is `ut_bayesian` in JSON, where `#` is the n-gram size. For example, after the `spath` command `ut_bayesian.2` will contain a score of a word based on its bigrams, and `ut_bayesian.3` will contain a score of a word based on its trigrams.
 
@@ -218,3 +219,20 @@ The output is `ut_bayesian` in JSON, where `#` is the n-gram size. For example, 
 ### \`ut_levenshtein(word1, word2)\`
 
 Return the Levenshtein distance between the two submitted words.
+
+
+### \`ut_parse_domain(word)\`
+
+This macro parses a domain using built-in functions and a lookup table. This extracts the same domain, TLD, and subdomain information as the external lookup for the "mozilla" list.
+
+The output is `ut_results`, a JSON object with the following fields: `ut_domain`, `ut_tld`, `ut_domain_without_tld`, `ut_subdomain`, `ut_subdomain_count`, `ut_subdomain_parts`. The information can be accessed using the `spath` command.
+
+### \`ut_parse_domain_icann(word)\`
+
+This macro parses a domain like \`ut_parse_domain()\` but it only uses the IANA TLDs and the ICANN domains. Unknown TLDs, custom TLDs, and Mozilla lists are excluded. 
+
+If TLD extraction is needed:
+  - Clone the `ut_psl_lookup_icann` lookup
+  - Remove the `domain_type="ICANN"` condition
+  - Clone the `\`ut_parse_domain_icann\`` macro
+  - Change the target lookup table to point to the newly filtered lookup
