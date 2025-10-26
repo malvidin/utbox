@@ -5,19 +5,10 @@ import xml.dom.minidom
 import xml.sax.saxutils
 from pathlib import Path
 
-from generate_psl_lookup import generate_lookup
-
-if sys.version_info[:2] == (3, 7):
-    lib_path = Path(__file__).resolve().parents[1] / "lib37"
-    sys.path.append(str(lib_path))
-else:
-    assert sys.version_info[:2] == (3, 9)
-    lib_path = Path(__file__).resolve().parents[1] / "lib"
-    sys.path.append(str(lib_path))
-
 import requests
 
 import ut_log_lib
+from generate_psl_lookup import generate_lookup
 
 logger = ut_log_lib.setup_logger()
 

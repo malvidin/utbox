@@ -6,15 +6,10 @@ from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlparse
 
-if sys.version_info[:2] == (3, 7):
-    lib_path = Path(__file__).resolve().parents[1] / "lib37"
-    sys.path.append(str(lib_path))
-else:
-    assert sys.version_info[:2] == (3, 9)
-    lib_path = Path(__file__).resolve().parents[1] / "lib"
-    sys.path.append(str(lib_path))
+lib_path = Path(__file__).resolve().parents[1] / "lib"
+sys.path.append(str(lib_path))
 
-import publicsuffixlist
+from publicsuffixlist import PublicSuffixList
 
 import ut_log_lib
 
@@ -44,7 +39,6 @@ def get_public_suffix_list(tld_list="iana"):
         logger.error(f"Invalid TLD list {tld_list}, loading IANA list.")
         tld_list = "iana"
 
-    from publicsuffixlist import PublicSuffixList
     default_config = Path(__file__).resolve().parents[1] / "default"
     local_config = Path(__file__).resolve().parents[1] / "local"
 
@@ -81,6 +75,13 @@ def get_public_suffix_list(tld_list="iana"):
 
     # Use custom list
     else:
+        if not custom_list.is_file():
+            logger.error(
+                f"Custom list {custom_list} not found, using Mozilla list. "
+                f"Add utbox/local/public_suffix_list_custom.dat "
+                f"using the Public Suffix List format to parse domains with custom public suffixes."
+            )
+            custom_list = mozilla_list
         tld_list_path = custom_list
         only_icann = False
 
@@ -93,7 +94,7 @@ def get_public_suffix_list(tld_list="iana"):
 def extended_split(
     scheme: str,
     netloc: str,
-    suffix_list: publicsuffixlist.PublicSuffixList,
+    suffix_list: PublicSuffixList,
 ) -> dict:
     """
     Extensive split of the domain name with Mozilla Suffix List.
@@ -112,9 +113,8 @@ def extended_split(
     # fix for base64
     host_without_port = netloc.lower()
 
-    # extract the port from the netloc and remove it
-    # IPv6 address
-    if ":" in netloc and netloc[:-1] != "]":
+    # extract the port from the netloc and remove it, not splitting IPv6 addresses
+    if ":" in netloc and netloc[-1:] != "]":
         n, p = netloc.rsplit(":", 1)
         ret["ut_port"] = p
         host_without_port = n
@@ -123,19 +123,19 @@ def extended_split(
     if ret["ut_port"] == "None" and scheme in urllib_schemes:
         ret["ut_port"] = urllib_schemes[scheme]
 
+    # if this is an IP, we just copy it
+    if preg_ipv4.search(host_without_port) or preg_ipv6.search(host_without_port):
+        try:
+            ip = ip_address(host_without_port.strip("[]"))
+            ret["ut_domain"] = ret["ut_domain_without_tld"] = ip.compressed
+            return ret
+        except ValueError:
+            ret["ut_domain"] = ret["ut_domain_without_tld"] = host_without_port
+
     # find the TLD
     tld = suffix_list.publicsuffix(host_without_port)
 
     if tld is None:
-
-        # if this is an IP, we just copy it
-        if preg_ipv4.search(host_without_port) or preg_ipv6.search(host_without_port):
-            try:
-                ip = ip_address(host_without_port.strip("[]"))
-                ret["ut_domain"] = ret["ut_domain_without_tld"] = ip.compressed
-            except ValueError:
-                ret["ut_domain"] = ret["ut_domain_without_tld"] = host_without_port
-
         return ret
 
     ret["ut_tld"] = tld
@@ -179,7 +179,7 @@ def parse_simple(url):
     return {k: v if v else "None" for k, v in zip(keys, url_vals)}
 
 
-def parse_extended(url, suffix_list: publicsuffixlist.PublicSuffixList):
+def parse_extended(url, suffix_list: PublicSuffixList):
     res = parse_simple(url)
     r = extended_split(res["ut_scheme"], res["ut_netloc"], suffix_list)
     res.update(r)

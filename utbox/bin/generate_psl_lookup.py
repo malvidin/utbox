@@ -90,7 +90,7 @@ def generate_lookup():
 
         if line.startswith("// ===BEGIN PRIVATE DOMAINS==="):
             # Set the domain type to private when entering the private section of the Public Suffix List
-            domain_section = "PRIupdate_tld_listsVATE"
+            domain_section = "PRIVATE"
 
         if line.startswith("//") or not line.strip():
             # Skip comments and empty lines

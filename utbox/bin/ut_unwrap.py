@@ -9,6 +9,8 @@ URL defense mechanisms like Microsoft SafeLinks and Proofpoint UrlDefense.
 Supported URL defense mechanisms:
 - Microsoft SafeLinks
 - Proofpoint UrlDefense (versions v1, v2, v3)
+- Cisco Secure Web
+- Barracuda Link Protect
 
 Usage:
     from ut_unwrap import unwrap
